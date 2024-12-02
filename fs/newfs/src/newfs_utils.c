@@ -26,21 +26,20 @@ int newfs_mount(struct custom_options options) {
         super_d.sb_offset = 0;
         
         super_d.ino_map_blks = 1;
-        super_d.ino_map_offset =super_d.sb_offset + super_d.sb_blks * super_d.sz_blks;
+        super_d.ino_map_offset =super_d.sb_offset + super_d.sb_blks * super.sz_blks;
 
         super_d.data_map_blks = 1;
-        super_d.data_map_offset = super_d.ino_map_offset + super_d.ino_map_blks * super_d.sz_blks;
+        super_d.data_map_offset = super_d.ino_map_offset + super_d.ino_map_blks * super.sz_blks;
 
         super_d.ino_blks = 12;
-        super_d.ino_offset = super_d.data_map_offset + super_d.data_map_blks * super_d.sz_blks;
+        super_d.ino_offset = super_d.data_map_offset + super_d.data_map_blks * super.sz_blks;
 
         super_d.data_blks = super.blks_nums - 16;
-        super_d.data_offset = super_d.ino_offset + super_d.ino_blks * super_d.sz_blks;
+        super_d.data_offset = super_d.ino_offset + super_d.ino_blks * super.sz_blks;
 
         is_init = 1;
     }
 
-    super.magic = super_d.magic;
     super.sz_usage = super_d.sz_usage;
     super.sb_offset = super_d.sb_offset;
     super.sb_blks = super_d.sb_blks;
@@ -55,10 +54,10 @@ int newfs_mount(struct custom_options options) {
     super.data_map = (uint8_t *)malloc(super.data_map_blks * super.sz_blks);
 
     newfs_driver_read(super.ino_map_offset, super.inode_map, super.ino_map_blks * super.sz_blks);
-    newfs_driver_read(super.data_map_offset, super.data_map, super.data_map_blks * super.sz_blks);
+    newfs_driver_read(super.data_map_offset, super.data_map, super.ino_map_blks * super.sz_blks);
 
     struct newfs_inode*   root_inode;
-    if (is_init) {
+    if (is_init == 1) {
         root_inode = newfs_alloc_inode(root_dentry);
         newfs_sync_inode(root_inode);
     }
@@ -76,24 +75,24 @@ struct newfs_inode* newfs_alloc_inode(struct newfs_dentry * dentry) {
     int byte_cursor = 0; 
     int bit_cursor  = 0; 
     int ino_cursor  = 0;
-    int is_find_free_entry = 0;
+    int is_find_free = 0;
 
     for (byte_cursor = 0; byte_cursor < super.ino_map_blks * super.sz_blks; byte_cursor++)
     {
         for (bit_cursor = 0; bit_cursor < 8; bit_cursor++) {
             if((super.inode_map[byte_cursor] & (0x1 << bit_cursor)) == 0) {    
                 super.inode_map[byte_cursor] |= (0x1 << bit_cursor);
-                is_find_free_entry = 1;           
+                is_find_free = 1;           
                 break;
             }
             ino_cursor++;
         }
-        if (is_find_free_entry) {
+        if (is_find_free) {
             break;
         }
     }
 
-    if (!is_find_free_entry || ino_cursor == super.ino_max) {
+    if (!is_find_free || ino_cursor == super.ino_max) {
         return NULL;
     }
         
@@ -121,24 +120,23 @@ int newfs_sync_inode(struct newfs_inode * inode) {
     struct newfs_inode_d  inode_d;
     struct newfs_dentry*  dentry_cursor;
     struct newfs_dentry_d dentry_d;
-    int ino       = inode->ino;
-    inode_d.ino   = ino;
+    inode_d.ino   = inode->ino;
     inode_d.size  = inode->size;
     inode_d.ftype = inode->dentry->ftype;
     inode_d.dir_cnt  = inode->dir_cnt;
     int offset;
     /* 先写inode本身 */
-    newfs_driver_write(super.ino_offset + ino * sizeof(struct newfs_inode_d), &inode_d, sizeof(struct newfs_inode_d));
-
+    newfs_driver_write(super.ino_offset + inode->ino * sizeof(struct newfs_inode_d), &inode_d, sizeof(struct newfs_inode_d));
     /* 再写inode下方的数据 */
     if (inode->dentry->ftype == NEWFS_TYPE_DIR) { /* 如果当前inode是目录，那么数据是目录项，且目录项的inode也要写回 */                          
         dentry_cursor = inode->dentrys;
-        offset        = super.data_offset + ino * super.sz_blks * NEWFS_DATA_PER_FILE;
         while (dentry_cursor != NULL)
         {
+            offset = super.data_offset + dentry_cursor->dno * super.sz_blks;
             memcpy(dentry_d.name, dentry_cursor->name, MAX_NAME_LEN);
             dentry_d.ftype = dentry_cursor->ftype;
             dentry_d.ino = dentry_cursor->ino;
+            dentry_d.dno = dentry_cursor->dno;
             newfs_driver_write(offset, &dentry_d, sizeof(struct newfs_dentry_d));
             
             if (dentry_cursor->inode != NULL) {
@@ -146,10 +144,9 @@ int newfs_sync_inode(struct newfs_inode * inode) {
             }
 
             dentry_cursor = dentry_cursor->brother;
-            offset += sizeof(struct newfs_dentry_d);
         }
     } else if (inode->dentry->ftype == NEWFS_TYPE_FILE) { /* 如果当前inode是文件，那么数据是文件内容，直接写即可 */ 
-        newfs_driver_write(super.data_offset + ino * super.sz_blks * NEWFS_DATA_PER_FILE, inode->data, NEWFS_DATA_PER_FILE * super.sz_blks);
+        newfs_driver_write(super.data_offset + inode->dentry->dno * super.sz_blks, inode->data, NEWFS_DATA_PER_FILE * super.sz_blks);
     }
     return 0;
 }
@@ -160,6 +157,7 @@ struct newfs_inode* newfs_read_inode(struct newfs_dentry * dentry, int ino) {
     struct newfs_inode_d inode_d;
     struct newfs_dentry* sub_dentry;
     struct newfs_dentry_d dentry_d;
+    struct newfs_dentry* dentry_cursor;
     int    dir_cnt = 0, i, offset;
     /* 从磁盘读索引结点 */
     offset = super.ino_offset + ino * sizeof(struct newfs_inode_d);
@@ -170,7 +168,6 @@ struct newfs_inode* newfs_read_inode(struct newfs_dentry * dentry, int ino) {
     inode->dentry = dentry;
     inode->dentrys = NULL;
     /* 内存中的inode的数据或子目录项部分也需要读出 */
-    offset = super.data_offset + ino * super.sz_blks * NEWFS_DATA_PER_FILE;
     if (inode->dentry->ftype == NEWFS_TYPE_DIR) {
         dir_cnt = inode_d.dir_cnt;
         for (i = 0; i < dir_cnt; i++) {
@@ -178,10 +175,22 @@ struct newfs_inode* newfs_read_inode(struct newfs_dentry * dentry, int ino) {
             sub_dentry = new_dentry(dentry_d.name, dentry_d.ftype);
             sub_dentry->parent = inode->dentry;
             sub_dentry->ino    = dentry_d.ino; 
+            sub_dentry->dno    = dentry_d.dno;
             newfs_alloc_dentry(inode, sub_dentry);
         }
+        // dentry_cursor = inode->dentry;
+        // while (dentry_cursor != NULL) {
+        //     offset = super.data_offset + dentry_cursor->ino * super.sz_blks * NEWFS_DATA_PER_FILE;
+        //     newfs_driver_read(offset, &dentry_d, sizeof(struct newfs_dentry_d));
+        //     sub_dentry = new_dentry(dentry_d.name, dentry_d.ftype);
+        //     sub_dentry->parent = inode->dentry;
+        //     sub_dentry->ino    = dentry_d.ino; 
+        //     newfs_alloc_dentry(inode, sub_dentry);
+        //     dentry_cursor = dentry_cursor->brother;
+        // }
     } else if (inode->dentry->ftype == NEWFS_TYPE_FILE) {
         inode->data = (int *)malloc(NEWFS_DATA_PER_FILE * super.sz_blks);
+        offset = super.data_offset + dentry->dno * super.sz_blks * NEWFS_DATA_PER_FILE;
         newfs_driver_read(offset, inode->data, NEWFS_DATA_PER_FILE * super.sz_blks);
     }
     return inode;
@@ -191,6 +200,7 @@ struct newfs_inode* newfs_read_inode(struct newfs_dentry * dentry, int ino) {
 int newfs_alloc_dentry(struct newfs_inode* inode, struct newfs_dentry* dentry) {
     int byte_cursor = 0; 
     int bit_cursor  = 0; 
+    int dno_cursor  = 0;
     int is_find_free = 0;
 
     for (byte_cursor = 0; byte_cursor < super.data_map_blks * super.sz_blks; byte_cursor++)
@@ -201,6 +211,7 @@ int newfs_alloc_dentry(struct newfs_inode* inode, struct newfs_dentry* dentry) {
                 is_find_free = 1;           
                 break;
             }
+            dno_cursor++;
         }
         if (is_find_free) {
             break;
@@ -209,8 +220,10 @@ int newfs_alloc_dentry(struct newfs_inode* inode, struct newfs_dentry* dentry) {
 
     if (!is_find_free) {
         free(dentry);
-        return NULL;
+        return 0;
     }
+
+    dentry->dno = dno_cursor;
     
     if (inode->dentrys == NULL) {
         inode->dentrys = dentry;
@@ -224,12 +237,13 @@ int newfs_alloc_dentry(struct newfs_inode* inode, struct newfs_dentry* dentry) {
 
 int newfs_driver_read(int offset, void *out_content, int size) {
     int offset_aligned_down = NEWFS_ROUND_DOWN(offset, super.sz_io);
-    int offset_aligned_up = NEWFS_ROUND_UP(offset + size, super.sz_io);
     int bias = offset - offset_aligned_down;
+    int offset_aligned_up = NEWFS_ROUND_UP(offset_aligned_down + size + bias, super.sz_io);
     
-    ddriver_seek(super.fd, offset_aligned_down, SEEK_SET);
     int blk_num = (offset_aligned_up - offset_aligned_down) / super.sz_io;
     char *buf = (char *)malloc(super.sz_io * blk_num);
+
+    ddriver_seek(super.fd, offset_aligned_down, SEEK_SET);
     for (int i = 0; i < blk_num; i++) {
         ddriver_read(super.fd, buf + i * super.sz_io, super.sz_io);
     }
@@ -240,13 +254,14 @@ int newfs_driver_read(int offset, void *out_content, int size) {
 
 int newfs_driver_write(int offset, void *in_content, int size) {
     int offset_aligned_down = NEWFS_ROUND_DOWN(offset, super.sz_io);
-    int offset_aligned_up = NEWFS_ROUND_UP(offset + size, super.sz_io);
     int bias = offset - offset_aligned_down;
+    int offset_aligned_up = NEWFS_ROUND_UP(offset_aligned_down + size + bias, super.sz_io);
+    
     int blk_num = (offset_aligned_up - offset_aligned_down) / super.sz_io;
-
     char *buf = (char *)malloc(super.sz_io * blk_num);
     newfs_driver_read(offset_aligned_down, buf, super.sz_io * blk_num);
     memcpy(buf + bias, in_content, size);
+
     ddriver_seek(super.fd, offset_aligned_down, SEEK_SET);
     for (int i = 0; i < blk_num; i++) {
         ddriver_write(super.fd, buf + i * super.sz_io, super.sz_io);
@@ -360,30 +375,30 @@ struct newfs_dentry* newfs_get_dentry(struct newfs_inode * inode, int dir) {
 }
 
 int newfs_umount() {
-    struct newfs_super_d  newfs_super_d; 
+    struct newfs_super_d  super_d; 
 
     newfs_sync_inode(super.root_dentry->inode);     /* 从根节点向下刷写节点 */
                                                     
-    newfs_super_d.magic           = NEWFS_MAGIC;
-    newfs_super_d.sz_io           = super.sz_io;    
-    newfs_super_d.sz_blks         = super.sz_blks;
-    newfs_super_d.blks_nums       = super.blks_nums;
-    newfs_super_d.sz_usage        = super.sz_usage;
-    newfs_super_d.sb_offset       = super.sb_offset;
-    newfs_super_d.sb_blks         = super.sb_blks;
-    newfs_super_d.ino_offset      = super.ino_offset;
-    newfs_super_d.ino_blks        = super.ino_blks;
-    newfs_super_d.ino_map_offset  = super.ino_map_offset;
-    newfs_super_d.ino_map_blks    = super.ino_map_blks;
-    newfs_super_d.data_map_offset = super.data_map_offset;
-    newfs_super_d.data_map_blks   = super.data_map_blks;
-    newfs_super_d.data_offset     = super.data_offset;
-    newfs_super_d.data_blks       = super.data_blks;
+    super_d.magic           = NEWFS_MAGIC;
+    super_d.sz_io           = super.sz_io;    
+    super_d.sz_blks         = super.sz_blks;
+    super_d.blks_nums       = super.blks_nums;
+    super_d.sz_usage        = super.sz_usage;
+    super_d.sb_offset       = super.sb_offset;
+    super_d.sb_blks         = super.sb_blks;
+    super_d.ino_offset      = super.ino_offset;
+    super_d.ino_blks        = super.ino_blks;
+    super_d.ino_map_offset  = super.ino_map_offset;
+    super_d.ino_map_blks    = super.ino_map_blks;
+    super_d.data_map_offset = super.data_map_offset;
+    super_d.data_map_blks   = super.data_map_blks;
+    super_d.data_offset     = super.data_offset;
+    super_d.data_blks       = super.data_blks;
 
 
-    newfs_driver_write(0, &newfs_super_d, sizeof(struct newfs_super_d));
-    newfs_driver_write(newfs_super_d.ino_map_offset, super.inode_map, super.ino_map_blks * super.sz_blks);
-    newfs_driver_write(newfs_super_d.data_map_offset, super.data_map, super.data_map_blks * super.sz_blks);
+    newfs_driver_write(0, &super_d, sizeof(struct newfs_super_d));
+    newfs_driver_write(super_d.ino_map_offset, super.inode_map, super.ino_map_blks * super.sz_blks);
+    newfs_driver_write(super_d.data_map_offset, super.data_map, super.data_map_blks * super.sz_blks);
 
     free(super.inode_map);
     free(super.data_map);

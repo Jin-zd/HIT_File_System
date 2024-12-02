@@ -63,6 +63,7 @@ struct newfs_inode {
 
 struct newfs_dentry {
     char                 name[MAX_NAME_LEN];
+    uint32_t             dno;
     uint32_t             ino;
     /* TODO: Define yourself */
     struct newfs_dentry* parent;
@@ -76,6 +77,7 @@ static inline struct newfs_dentry* new_dentry(char * name, NEWFS_FILE_TYPE ftype
     memset(dentry, 0, sizeof(struct newfs_dentry));
     memcpy(dentry->name, name, MAX_NAME_LEN);
     dentry->ftype    = ftype;
+    dentry->dno      = -1;
     dentry->ino      = -1;
     dentry->inode    = NULL;
     dentry->parent   = NULL;
@@ -117,6 +119,7 @@ struct newfs_inode_d {
 
 struct newfs_dentry_d {
     char                name[MAX_NAME_LEN];
+    uint32_t            dno;
     uint32_t            ino;
     NEWFS_FILE_TYPE     ftype;
 };
