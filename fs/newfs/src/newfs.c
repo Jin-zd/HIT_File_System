@@ -6,10 +6,6 @@
 * SECTION: 宏定义
 *******************************************************************************/
 #define OPTION(t, p)        { t, offsetof(struct custom_options, p), 1 }
-#define NEWFS_ROUND_DOWN(value, round)    ((value) % (round) == 0 ? (value) : ((value) / (round)) * (round))
-#define NEWFS_ROUND_UP(value, round)      ((value) % (round) == 0 ? (value) : ((value) / (round) + 1) * (round))
-
-
 /******************************************************************************
 * SECTION: 全局变量
 *******************************************************************************/
@@ -53,16 +49,7 @@ static struct fuse_operations operations = {
  */
 void* newfs_init(struct fuse_conn_info * conn_info) {
 	/* TODO: 在这里进行挂载 */
-
-	/* 下面是一个控制设备的示例 */
-	super.fd = ddriver_open(newfs_options.device);
-
-	int sz_disk;
-    ddriver_ioctl(SFS_DRIVER(), IOC_REQ_DEVICE_SIZE,  &sz_disk);
-    ddriver_ioctl(SFS_DRIVER(), IOC_REQ_DEVICE_IO_SZ, &super.sz_io);
-    super.sz_blks = super.sz_io * 2;
-    super.blks_nums = sz_disk / super.sz_blks;
-	
+	newfs_mount(newfs_options);
 	return NULL;
 }
 
@@ -74,9 +61,7 @@ void* newfs_init(struct fuse_conn_info * conn_info) {
  */
 void newfs_destroy(void* p) {
 	/* TODO: 在这里进行卸载 */
-	
-	ddriver_close(super.fd);
-
+	newfs_umount();
 	return;
 }
 
@@ -89,6 +74,26 @@ void newfs_destroy(void* p) {
  */
 int newfs_mkdir(const char* path, mode_t mode) {
 	/* TODO: 解析路径，创建目录 */
+	(void)mode;
+	int is_find, is_root;
+	char* name;
+	struct newfs_dentry* last_dentry = newfs_lookup(path, &is_find, &is_root);
+	struct newfs_dentry* dentry;
+	struct newfs_inode*  inode;
+
+	if (is_find) {
+		return -17;
+	}
+
+	if (last_dentry->inode->dentry->ftype == NEWFS_TYPE_FILE) {
+		return -6;
+	}
+
+	name  = newfs_get_fname(path);
+	dentry = new_dentry(name, NEWFS_TYPE_DIR); 
+	dentry->parent = last_dentry;
+	inode  = newfs_alloc_inode(dentry);
+	newfs_alloc_dentry(last_dentry->inode, dentry);
 	return 0;
 }
 
@@ -101,6 +106,34 @@ int newfs_mkdir(const char* path, mode_t mode) {
  */
 int newfs_getattr(const char* path, struct stat * newfs_stat) {
 	/* TODO: 解析路径，获取Inode，填充newfs_stat，可参考/fs/simplefs/sfs.c的sfs_getattr()函数实现 */
+	int	is_find, is_root;
+	struct newfs_dentry* dentry = newfs_lookup(path, &is_find, &is_root);
+	if (is_find == 0) {
+		return -2;
+	}
+
+	if (dentry->inode->dentry->ftype == NEWFS_TYPE_DIR) {
+		newfs_stat->st_mode = S_IFDIR | NEWFS_DEFAULT_PERM ;
+		newfs_stat->st_size = dentry->inode->dir_cnt * sizeof(struct newfs_dentry_d);
+	}
+	else if (dentry->inode->dentry->ftype == NEWFS_TYPE_FILE) {
+		newfs_stat->st_mode = S_IFREG | NEWFS_DEFAULT_PERM ;
+		newfs_stat->st_size = dentry->inode->size;
+	}
+
+	newfs_stat->st_nlink = 1;
+	newfs_stat->st_uid 	 = getuid();
+	newfs_stat->st_gid 	 = getgid();
+	newfs_stat->st_atime   = time(NULL);
+	newfs_stat->st_mtime   = time(NULL);
+	newfs_stat->st_blksize = super.sz_blks;
+
+	if (is_root) {
+		newfs_stat->st_size	= super.sz_usage; 
+		newfs_stat->st_blocks = super.blks_nums;
+		newfs_stat->st_nlink  = 2;		/* !特殊，根目录link数为2 */
+	}
+	
 	return 0;
 }
 
@@ -125,7 +158,21 @@ int newfs_getattr(const char* path, struct stat * newfs_stat) {
 int newfs_readdir(const char * path, void * buf, fuse_fill_dir_t filler, off_t offset,
 			    		 struct fuse_file_info * fi) {
     /* TODO: 解析路径，获取目录的Inode，并读取目录项，利用filler填充到buf，可参考/fs/simplefs/sfs.c的sfs_readdir()函数实现 */
-    return 0;
+    int	is_find, is_root;
+	int	cur_dir = offset;
+
+	struct newfs_dentry* dentry = newfs_lookup(path, &is_find, &is_root);
+	struct newfs_dentry* sub_dentry;
+	struct newfs_inode* inode;
+	if (is_find) {
+		inode = dentry->inode;
+		sub_dentry = newfs_get_dentry(inode, cur_dir);
+		if (sub_dentry) {
+			filler(buf, sub_dentry->name, NULL, ++offset);
+		}
+		return 0;
+	}
+	return -2;
 }
 
 /**
@@ -138,6 +185,31 @@ int newfs_readdir(const char * path, void * buf, fuse_fill_dir_t filler, off_t o
  */
 int newfs_mknod(const char* path, mode_t mode, dev_t dev) {
 	/* TODO: 解析路径，并创建相应的文件 */
+	int	is_find, is_root;
+	
+	struct newfs_dentry* last_dentry = newfs_lookup(path, &is_find, &is_root);
+	struct newfs_dentry* dentry;
+	struct newfs_inode* inode;
+	char* name;
+	
+	if (is_find == 1) {
+		return -17;
+	}
+
+	name = newfs_get_fname(path);
+	
+	if (S_ISREG(mode)) {
+		dentry = new_dentry(name, NEWFS_TYPE_FILE);
+	}
+	else if (S_ISDIR(mode)) {
+		dentry = new_dentry(name, NEWFS_TYPE_DIR);
+	}
+	else {
+		dentry = new_dentry(name, NEWFS_TYPE_FILE);
+	}
+	dentry->parent = last_dentry;
+	inode = newfs_alloc_inode(dentry);
+	newfs_alloc_dentry(last_dentry->inode, dentry);
 	return 0;
 }
 
