@@ -6,6 +6,9 @@
 * SECTION: 宏定义
 *******************************************************************************/
 #define OPTION(t, p)        { t, offsetof(struct custom_options, p), 1 }
+#define NEWFS_ROUND_DOWN(value, round)    ((value) % (round) == 0 ? (value) : ((value) / (round)) * (round))
+#define NEWFS_ROUND_UP(value, round)      ((value) % (round) == 0 ? (value) : ((value) / (round) + 1) * (round))
+
 
 /******************************************************************************
 * SECTION: 全局变量
@@ -53,6 +56,12 @@ void* newfs_init(struct fuse_conn_info * conn_info) {
 
 	/* 下面是一个控制设备的示例 */
 	super.fd = ddriver_open(newfs_options.device);
+
+	int sz_disk;
+    ddriver_ioctl(SFS_DRIVER(), IOC_REQ_DEVICE_SIZE,  &sz_disk);
+    ddriver_ioctl(SFS_DRIVER(), IOC_REQ_DEVICE_IO_SZ, &super.sz_io);
+    super.sz_blks = super.sz_io * 2;
+    super.blks_nums = sz_disk / super.sz_blks;
 	
 	return NULL;
 }
