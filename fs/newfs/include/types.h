@@ -3,7 +3,7 @@
 
 #define MAX_NAME_LEN    128     
 #define INODE_NUM 12
-#define NEWFS_DATA_PER_FILE 6
+#define NEWFS_DATA_PER_FILE 1
 
 #define NEWFS_ROUND_DOWN(value, round)    ((value) % (round) == 0 ? (value) : ((value) / (round)) * (round))
 #define NEWFS_ROUND_UP(value, round)      ((value) % (round) == 0 ? (value) : ((value) / (round) + 1) * (round))
@@ -51,6 +51,7 @@ struct newfs_super {
 
 struct newfs_inode {
     uint32_t        ino;
+    uint32_t        dno;
     /* TODO: Define yourself */
     int             size;
     int             dir_cnt;
@@ -77,8 +78,8 @@ static inline struct newfs_dentry* new_dentry(char * name, NEWFS_FILE_TYPE ftype
     memset(dentry, 0, sizeof(struct newfs_dentry));
     memcpy(dentry->name, name, MAX_NAME_LEN);
     dentry->ftype    = ftype;
-    dentry->dno      = -1;
-    dentry->ino      = -1;
+    dentry->dno      = 0;
+    dentry->ino      = 0;
     dentry->inode    = NULL;
     dentry->parent   = NULL;
     dentry->brother = NULL;      
@@ -112,6 +113,7 @@ struct newfs_super_d {
 
 struct newfs_inode_d {
     uint32_t        ino;
+    uint32_t        dno;
     int             size;
     int             dir_cnt;
     NEWFS_FILE_TYPE ftype;

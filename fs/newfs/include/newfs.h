@@ -32,6 +32,7 @@ struct newfs_dentry* newfs_lookup(const char * path, int* is_find, int* is_root)
 int                  newfs_calc_lvl(const char * path);
 char* 			     newfs_get_fname(const char* path);
 struct newfs_dentry* newfs_get_dentry(struct newfs_inode * inode, int dir);
+struct newfs_inode*  newfs_read_inode_remount(struct newfs_dentry * dentry, int ino);
 
 /******************************************************************************
 * SECTION: newfs.c
