@@ -86,7 +86,7 @@ int newfs_sync_inode(struct newfs_inode * inode) {
 }
 
 
-struct newfs_inode* newfs_read_inode_remount(struct newfs_dentry * dentry, int ino) {
+void newfs_read_inode_remount(struct newfs_dentry * dentry, int ino) {
     struct newfs_inode* inode = (struct newfs_inode*)malloc(sizeof(struct newfs_inode));
     struct newfs_inode_d inode_d;
     struct newfs_dentry* sub_dentry;

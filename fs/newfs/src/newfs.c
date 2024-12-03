@@ -346,7 +346,7 @@ int newfs_truncate(const char* path, off_t offset) {
  * W_OK: Test for write permission.
  * X_OK: Test for execute permission.
  * F_OK: Test for existence. 
- * 
+ *  
  * @return int 0成功，否则返回对应错误号
  */
 int newfs_access(const char* path, int type) {
