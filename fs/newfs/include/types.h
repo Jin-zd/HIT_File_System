@@ -52,7 +52,6 @@ struct newfs_super {
 struct newfs_inode {
     uint32_t        ino;
     uint32_t        dno;
-    /* TODO: Define yourself */
     int             size;
     int             dir_cnt;
 
@@ -66,7 +65,6 @@ struct newfs_dentry {
     char                 name[MAX_NAME_LEN];
     uint32_t             dno;
     uint32_t             ino;
-    /* TODO: Define yourself */
     struct newfs_dentry* parent;
     struct newfs_dentry* brother;
     struct newfs_inode*  inode;
@@ -116,7 +114,6 @@ struct newfs_inode_d {
     uint32_t        dno;
     int             size;
     int             dir_cnt;
-    NEWFS_FILE_TYPE ftype;
 };
 
 struct newfs_dentry_d {

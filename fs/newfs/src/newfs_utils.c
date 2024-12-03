@@ -2,77 +2,6 @@
 
 extern struct newfs_super super;
 
-int newfs_mount(struct custom_options options) {
-    super.fd = ddriver_open(options.device);
-
-    int sz_disk;
-    ddriver_ioctl(super.fd, IOC_REQ_DEVICE_SIZE,  &sz_disk);
-    ddriver_ioctl(super.fd, IOC_REQ_DEVICE_IO_SZ, &super.sz_io);
-    super.sz_blks = super.sz_io * 2;
-    super.blks_nums = sz_disk / super.sz_blks;
-    super.ino_max = 614;
-
-    struct newfs_dentry*  root_dentry;
-    root_dentry = new_dentry("/", NEWFS_TYPE_DIR); 
-
-    struct newfs_super_d super_d;
-    newfs_driver_read(0, &super_d, sizeof(struct newfs_super_d));
-
-    int is_init = 0;
-    if (super_d.magic != NEWFS_MAGIC) {
-        super_d.sz_usage = 0;
-
-        super_d.sb_blks = 1;
-        super_d.sb_offset = 0;
-        
-        super_d.ino_map_blks = 1;
-        super_d.ino_map_offset =super_d.sb_offset + super_d.sb_blks * super.sz_blks;
-
-        super_d.data_map_blks = 1;
-        super_d.data_map_offset = super_d.ino_map_offset + super_d.ino_map_blks * super.sz_blks;
-
-        super_d.ino_blks = 12;
-        super_d.ino_offset = super_d.data_map_offset + super_d.data_map_blks * super.sz_blks;
-
-        super_d.data_blks = super.blks_nums - 16;
-        super_d.data_offset = super_d.ino_offset + super_d.ino_blks * super.sz_blks;
-
-        is_init = 1;
-    }
-
-    super.sz_usage = super_d.sz_usage;
-    super.sb_offset = super_d.sb_offset;
-    super.sb_blks = super_d.sb_blks;
-    super.ino_offset = super_d.ino_offset;
-    super.ino_blks = super_d.ino_blks;
-    super.ino_map_offset = super_d.ino_map_offset;
-    super.ino_map_blks = super_d.ino_map_blks;
-    super.data_map_offset = super_d.data_map_offset;
-    super.data_map_blks = super_d.data_map_blks;
-    super.data_offset = super_d.data_offset;
-    super.data_blks = super_d.data_blks;
-
-    super.inode_map = (uint8_t *)malloc(super.ino_map_blks * super.sz_blks);
-    super.data_map = (uint8_t *)malloc(super.data_map_blks * super.sz_blks);
-
-    newfs_driver_read(super.ino_map_offset, super.inode_map, super.ino_map_blks * super.sz_blks);
-    newfs_driver_read(super.data_map_offset, super.data_map, super.data_map_blks * super.sz_blks);
-
-    struct newfs_inode* root_inode;
-    if (is_init == 1) {
-        root_inode = newfs_alloc_inode(root_dentry);
-        root_inode = newfs_read_inode(root_dentry, 0);
-        root_inode = newfs_read_inode(root_dentry, 0);
-        root_dentry->inode = root_inode;
-    } else {
-        newfs_read_inode_remount(root_dentry, 0);
-    }
-    super.root_dentry = root_dentry;
-
-    return 0;
-}
-
-
 struct newfs_inode* newfs_alloc_inode(struct newfs_dentry * dentry) {
     struct newfs_inode* inode;
     int byte_cursor = 0; 
@@ -126,7 +55,6 @@ int newfs_sync_inode(struct newfs_inode * inode) {
     inode_d.ino   = inode->ino;
     inode_d.dno   = inode->dno;
     inode_d.size  = inode->size;
-    inode_d.ftype = inode->dentry->ftype;
     inode_d.dir_cnt  = inode->dir_cnt;
     int offset;
     newfs_driver_write(super.ino_offset + inode->ino * sizeof(struct newfs_inode_d), &inode_d, sizeof(struct newfs_inode_d));
@@ -194,9 +122,7 @@ struct newfs_inode* newfs_read_inode_remount(struct newfs_dentry * dentry, int i
             newfs_read_inode_remount(sub_dentry, sub_dentry->ino);
         }
     } else if (inode->dentry->ftype == NEWFS_TYPE_FILE) {
-        inode->data = (int *)malloc(NEWFS_DATA_PER_FILE * super.sz_blks);
-        offset = super.data_offset + inode->dno * super.sz_blks * NEWFS_DATA_PER_FILE;
-        newfs_driver_read(offset, inode->data, NEWFS_DATA_PER_FILE * super.sz_blks);
+
     }
     dentry->inode = inode;
 }
@@ -235,9 +161,7 @@ struct newfs_inode* newfs_read_inode(struct newfs_dentry * dentry, int ino) {
             inode->dir_cnt++;
         }
     } else if (inode->dentry->ftype == NEWFS_TYPE_FILE) {
-        inode->data = (int *)malloc(NEWFS_DATA_PER_FILE * super.sz_blks);
-        offset = super.data_offset + dentry->dno * super.sz_blks * NEWFS_DATA_PER_FILE;
-        newfs_driver_read(offset, inode->data, NEWFS_DATA_PER_FILE * super.sz_blks);
+
     }
     return inode;
 }
@@ -416,6 +340,76 @@ struct newfs_dentry* newfs_get_dentry(struct newfs_inode * inode, int dir) {
         dentry_cursor = dentry_cursor->brother;
     }
     return NULL;
+}
+
+int newfs_mount(struct custom_options options) {
+    super.fd = ddriver_open(options.device);
+
+    int sz_disk;
+    ddriver_ioctl(super.fd, IOC_REQ_DEVICE_SIZE,  &sz_disk);
+    ddriver_ioctl(super.fd, IOC_REQ_DEVICE_IO_SZ, &super.sz_io);
+    super.sz_blks = super.sz_io * 2;
+    super.blks_nums = sz_disk / super.sz_blks;
+    super.ino_max = 614;
+
+    struct newfs_dentry*  root_dentry;
+    root_dentry = new_dentry("/", NEWFS_TYPE_DIR); 
+
+    struct newfs_super_d super_d;
+    newfs_driver_read(0, &super_d, sizeof(struct newfs_super_d));
+
+    int is_init = 0;
+    if (super_d.magic != NEWFS_MAGIC) {
+        super_d.sz_usage = 0;
+
+        super_d.sb_blks = 1;
+        super_d.sb_offset = 0;
+        
+        super_d.ino_map_blks = 1;
+        super_d.ino_map_offset =super_d.sb_offset + super_d.sb_blks * super.sz_blks;
+
+        super_d.data_map_blks = 1;
+        super_d.data_map_offset = super_d.ino_map_offset + super_d.ino_map_blks * super.sz_blks;
+
+        super_d.ino_blks = 12;
+        super_d.ino_offset = super_d.data_map_offset + super_d.data_map_blks * super.sz_blks;
+
+        super_d.data_blks = super.blks_nums - 16;
+        super_d.data_offset = super_d.ino_offset + super_d.ino_blks * super.sz_blks;
+
+        is_init = 1;
+    }
+
+    super.sz_usage = super_d.sz_usage;
+    super.sb_offset = super_d.sb_offset;
+    super.sb_blks = super_d.sb_blks;
+    super.ino_offset = super_d.ino_offset;
+    super.ino_blks = super_d.ino_blks;
+    super.ino_map_offset = super_d.ino_map_offset;
+    super.ino_map_blks = super_d.ino_map_blks;
+    super.data_map_offset = super_d.data_map_offset;
+    super.data_map_blks = super_d.data_map_blks;
+    super.data_offset = super_d.data_offset;
+    super.data_blks = super_d.data_blks;
+
+    super.inode_map = (uint8_t *)malloc(super.ino_map_blks * super.sz_blks);
+    super.data_map = (uint8_t *)malloc(super.data_map_blks * super.sz_blks);
+
+    newfs_driver_read(super.ino_map_offset, super.inode_map, super.ino_map_blks * super.sz_blks);
+    newfs_driver_read(super.data_map_offset, super.data_map, super.data_map_blks * super.sz_blks);
+
+    struct newfs_inode* root_inode;
+    if (is_init == 1) {
+        root_inode = newfs_alloc_inode(root_dentry);
+        root_inode = newfs_read_inode(root_dentry, 0);
+        root_inode = newfs_read_inode(root_dentry, 0);
+        root_dentry->inode = root_inode;
+    } else {
+        newfs_read_inode_remount(root_dentry, 0);
+    }
+    super.root_dentry = root_dentry;
+
+    return 0;
 }
 
 int newfs_umount() {
