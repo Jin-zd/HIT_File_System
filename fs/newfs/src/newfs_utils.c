@@ -402,7 +402,6 @@ int newfs_mount(struct custom_options options) {
     if (is_init == 1) {
         root_inode = newfs_alloc_inode(root_dentry);
         root_inode = newfs_read_inode(root_dentry, 0);
-        root_inode = newfs_read_inode(root_dentry, 0);
         root_dentry->inode = root_inode;
     } else {
         newfs_read_inode_remount(root_dentry, 0);
